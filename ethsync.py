@@ -61,9 +61,11 @@ def insertion(blockid, tr):
 
 
 while True:
-    maxblockindb = client.find_one(sort=[("block", -1)])['block']   
-    if maxblockindb is None:
+    maxblockindb = client.find_one(sort=[("block", -1)])
+    if not maxblockindb:
         maxblockindb = 5500000
+    else:
+        maxblockindb = maxblockindb['block']
     endblock = int(w3.eth.blockNumber)
     logger.info(
         "Current best block in index: "
