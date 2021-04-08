@@ -5,7 +5,7 @@ After=network.target
 After=postgresql.service
 
 [Service]
-ExecStart=/usr/bin/python3.6 you/path/to/script/ethsync.py <yourDB>
+ExecStart=/usr/bin/python3 /root/ETH-transactions-storage/ethsync.py
 TimeoutSec=300
 RestartSec=90
 Restart=always

@@ -3,97 +3,77 @@
 # By Artem Brunov, Aleksei Lebedev. (c) ADAMANT TECH LABS
 # v. 1.1
 
-from web3 import Web3
-import psycopg2
-import time
-import sys
-import logging
+from web3.auto import w3
+from web3 import HTTPProvider, Web3, WebsocketProvider
+from web3.middleware import geth_poa_middleware
 
-# Get postgre database name
-if len(sys.argv) < 2:
-    print('Add postgre database name as an argument')
-    exit()
+from pymongo import MongoClient
+from loguru import logger
+import json
+import os
 
-dbname = sys.argv[1]
+if os.environ.get("USEBSC"):
+    logger.info("使用bsc官方节点.")
+    w3 = Web3(
+        HTTPProvider("https://bsc-dataseed.binance.org", request_kwargs={"timeout": 60})
+    )
+w3.middleware_onion.inject(geth_poa_middleware, layer=0)
 
-# Connect to geth node
-#web3 = Web3(Web3.IPCProvider("/home/geth/.ethereum/geth.ipc"))
+logger.add(
+    "ethsync.log",
+    level="DEBUG",
+    format="{time:YYYY-MM-DD HH:mm:ss:SSS} - {level} - {file} - {line} - {message}",
+    rotation="10 MB",
+)
 
-# Or connect to parity node
-web3 = Web3(Web3.IPCProvider("/home/parity/.local/share/io.parity.ethereum/jsonrpc.ipc"))
-
-# Start logger
-logger = logging.getLogger("EthIndexerLog")
-logger.setLevel(logging.INFO)
-lfh = logging.FileHandler("/var/log/ethindexer.log")
-formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-lfh.setFormatter(formatter)
-logger.addHandler(lfh)
-
-try:
-    conn = psycopg2.connect("dbname=" + dbname)
-    conn.autocommit = True
-    logger.info("Connected to the database")
-except:
-    logger.error("Unable to connect to database")
-
-# Delete last block as it may be not imparted in full
-cur = conn.cursor()
-cur.execute('DELETE FROM public.ethtxs WHERE block = (SELECT Max(block) from public.ethtxs)')
-cur.close()
-conn.close()
+client = MongoClient()["ethtx"]["txlist"]
 
 # Adds all transactions from Ethereum block
 def insertion(blockid, tr):
-    time = web3.eth.getBlock(blockid)['timestamp']
+    logger.info(f"insert: {blockid}")
+    wait_insert = []
     for x in range(0, tr):
-        trans = web3.eth.getTransactionByBlock(blockid, x)
-        txhash = trans['hash']
-        value = trans['value']
-        inputinfo = trans['input']
-        # Check if transaction is a contract transfer
-        if (value == 0 and not inputinfo.startswith('0xa9059cbb')):
-            continue
-        fr = trans['from']
-        to = trans['to']
-        gasprice = trans['gasPrice']
-        gas = web3.eth.getTransactionReceipt(trans['hash'])['gasUsed']
-        contract_to = ''
-        contract_value = ''
-        # Check if transaction is a contract transfer
-        if inputinfo.startswith('0xa9059cbb'):
-            contract_to = inputinfo[10:-64]
-            contract_value = inputinfo[74:]
-        cur.execute(
-            'INSERT INTO public.ethtxs(time, txfrom, txto, value, gas, gasprice, block, txhash, contract_to, contract_value) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)',
-            (time, fr, to, value, gas, gasprice, blockid, txhash, contract_to, contract_value))
+        trans = w3.eth.getTransactionByBlock(blockid, x)
+        txhash = trans["hash"].hex()
+        value = str(trans["value"])
+        inputinfo = trans["input"]
+        fr = trans["from"]
+        to = trans["to"]
+        gasprice = str(trans["gasPrice"])
+        _txinfo = w3.eth.getTransactionReceipt(trans["hash"])
+        gas = str(_txinfo["gasUsed"])
+        status = _txinfo["status"]
+        logs = _txinfo["logs"]
+        _insert = {
+            "txhash": txhash,
+            "value": value,
+            "inputinfo": inputinfo,
+            "fr": fr,
+            "to": to,
+            "gasprice": gasprice,
+            "gas": gas,
+            "status": status,
+            "logs": json.loads(w3.toJSON(logs)),
+            "block": blockid,
+        }
+        wait_insert.append(_insert)
+    client.insert_many(wait_insert)
 
-# Fetch all of new (not in index) Ethereum blocks and add transactions to index
+
 while True:
-    try:
-        conn = psycopg2.connect("dbname=" + dbname)
-        conn.autocommit = True
-    except:
-        logger.error("Unable to connect to database")
-
-    cur = conn.cursor()
-
-    cur.execute('SELECT Max(block) from public.ethtxs')
-    maxblockindb = cur.fetchone()[0]
-    # On first start, we index transactions from a block number you indicate. 46146 is a sample.
+    maxblockindb = client.find_one(sort=[("block", -1)])['block']   
     if maxblockindb is None:
-        maxblockindb = 46146
-
-    endblock = int(web3.eth.blockNumber)
-
-    logger.info('Current best block in index: ' + str(maxblockindb) + '; in Ethereum chain: ' + str(endblock))
-
+        maxblockindb = 5500000
+    endblock = int(w3.eth.blockNumber)
+    logger.info(
+        "Current best block in index: "
+        + str(maxblockindb)
+        + "; in Ethereum chain: "
+        + str(endblock)
+    )
     for block in range(maxblockindb + 1, endblock):
-        transactions = web3.eth.getBlockTransactionCount(block)
+        transactions = w3.eth.getBlockTransactionCount(block)
         if transactions > 0:
             insertion(block, transactions)
         else:
-            logger.info('Block ' + str(block) + ' does not contain transactions')
-    cur.close()
-    conn.close()
-    time.sleep(20)
+            logger.info("Block " + str(block) + " does not contain transactions")
