@@ -60,22 +60,39 @@ def insertion(blockid, tr):
     client.insert_many(wait_insert)
 
 
-while True:
-    maxblockindb = client.find_one(sort=[("block", -1)])
-    if not maxblockindb:
-        maxblockindb = 5500000
-    else:
-        maxblockindb = maxblockindb['block']
-    endblock = int(w3.eth.blockNumber)
-    logger.info(
-        "Current best block in index: "
-        + str(maxblockindb)
-        + "; in Ethereum chain: "
-        + str(endblock)
-    )
-    for block in range(maxblockindb + 1, endblock):
-        transactions = w3.eth.getBlockTransactionCount(block)
-        if transactions > 0:
-            insertion(block, transactions)
+def gettx(txhash):
+    return client.find_one({"txhash": txhash})
+
+
+def getblock(blockid):
+    return list(client.find({"block": blockid}))
+
+
+def getAccountTx(fr, blockid, qlimit=100000, returnlogs=0):
+    return list(client.find(
+        {"fr": fr, "block": {"$gt": blockid}},
+        {"logs": returnlogs, "_id": 0},
+        sort=[("block", -1)],
+    ).limit(qlimit))
+
+
+if __name__ == "__main__":
+    while True:
+        maxblockindb = client.find_one(sort=[("block", -1)])
+        if not maxblockindb:
+            maxblockindb = 5500000
         else:
-            logger.info("Block " + str(block) + " does not contain transactions")
+            maxblockindb = maxblockindb["block"]
+        endblock = int(w3.eth.blockNumber)
+        logger.info(
+            "Current best block in index: "
+            + str(maxblockindb)
+            + "; in Ethereum chain: "
+            + str(endblock)
+        )
+        for block in range(maxblockindb + 1, endblock):
+            transactions = w3.eth.getBlockTransactionCount(block)
+            if transactions > 0:
+                insertion(block, transactions)
+            else:
+                logger.info("Block " + str(block) + " does not contain transactions")
