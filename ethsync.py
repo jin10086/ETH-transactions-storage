@@ -68,7 +68,7 @@ def getblock(blockid):
     return list(client.find({"block": blockid}))
 
 
-def getAccountTx(fr, blockid, qlimit=100000, returnlogs=0):
+def getAccountTx(fr, blockid=0, qlimit=1000000, returnlogs=0):
     return list(client.find(
         {"fr": fr, "block": {"$gt": blockid}},
         {"logs": returnlogs, "_id": 0},
