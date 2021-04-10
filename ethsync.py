@@ -8,6 +8,7 @@ from web3 import HTTPProvider, Web3, WebsocketProvider
 from web3.middleware import geth_poa_middleware
 
 from pymongo import MongoClient
+from pymongo import IndexModel
 from loguru import logger
 import json
 import os
@@ -27,6 +28,11 @@ logger.add(
 )
 
 client = MongoClient()["ethtx"]["txlist"]
+
+# index1 = IndexModel([("fr", 1),("block", -1)], name="fr_block")
+# index2 = IndexModel([("block", -1)], name="block")
+# index3 = IndexModel([("txhash", -1)], name="txhash")
+# client.create_indexes([index1,index2,index3])
 
 # Adds all transactions from Ethereum block
 def insertion(blockid, tr):
