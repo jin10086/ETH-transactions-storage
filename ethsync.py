@@ -49,17 +49,30 @@ def insertion(blockid, tr):
         _txinfo = w3.eth.getTransactionReceipt(trans["hash"])
         gas = str(_txinfo["gasUsed"])
         status = _txinfo["status"]
-        logs = _txinfo["logs"]
+        _logs = _txinfo["logs"]
+        contractAddress = _txinfo["contractAddress"]
+
+        logs = []
+        for i in _logs:
+            i = dict(i)
+            i['topics'] = [x.hex() for x in i['topics']]
+            del i['blockHash']
+            del i['blockNumber']
+            del i['transactionHash']
+            del i['removed']
+            del i['transactionIndex']
+            logs.append(i)
         _insert = {
             "txhash": txhash,
             "value": value,
+            "contractAddress":contractAddress,
             "inputinfo": inputinfo,
             "fr": fr,
             "to": to,
             "gasprice": gasprice,
             "gas": gas,
             "status": status,
-            "logs": json.loads(w3.toJSON(logs)),
+            "logs": logs,
             "block": blockid,
         }
         wait_insert.append(_insert)
